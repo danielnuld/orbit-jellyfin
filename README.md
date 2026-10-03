@@ -58,6 +58,16 @@ Portuguese, German...), and `gfx.c` draws the ASCII base letter when a font lack
 - On the console, some full-size Ethernet frames arrive with their last 42 bytes zeroed (ps2sdk netman's D-cache
   write-back); `net.c` lowers the MTU to 1400 so the server never sends frames that long.
 
+## How it was made
+
+Developed with [Claude Code](https://claude.com/claude-code) (Anthropic) as the coding assistant: it wrote and debugged
+most of the code, drove PCSX2 for testing and read the logs from the real console to track down the hardware-only bugs.
+Claude Code plugins and tools used along the way:
+
+- **OpenSpec**: each phase planned as a change with proposal, design, specs and tasks (`openspec/`)
+- **Ponytail**: a "do the simplest thing that works" mode, to keep the code small
+- **CodeGraph** (MCP server): a code index for finding symbols, callers and impact
+
 ## License
 
 GPL-3.0 (see `LICENSE`). `jfplay.elf` statically links wolfSSL 5.8.2 (GPL-3.0-or-later) and libmad (GPL-2.0-or-later)
