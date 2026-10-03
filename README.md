@@ -1,6 +1,6 @@
 # ORBIT Jellyfin
 
-Jellyfin player for the PlayStation 2, styled like the [ORBIT launcher](https://github.com/danielnuld/ps2-launcher).
+Jellyfin player for the PlayStation 2, styled like the ORBIT launcher (to be published).
 Jellyfin transcodes to MPEG-2 + MP2 at SD resolution; the PS2 decodes the video on the IPU (libmpeg) and the audio
 with libmad + audsrv.
 
@@ -44,7 +44,7 @@ The log goes to `mass0:/jfplay.txt`; an answer from the server that does not par
 
 ## Code shared with the launcher
 
-These files are copies from ps2-launcher at 075331b. A fix in one repo has to be copied to the other by hand:
+These files are copies from the ORBIT launcher sources. A fix in one repo has to be copied to the other by hand:
 `gfx.c/h`, `ui_data.c/h` (the launcher's `tools/ui_art.py`), `ini.c/h`, `net.c/h`, `iop.c/h`, `cover.c/h`, `build.sh`.
 
 The fonts have diverged: `tools/font.py` here bakes all Latin-1 letters plus œ into the ui font (subtitles in French,
