@@ -595,9 +595,18 @@ static long long play(jf_conn *c, const jf_item *it, long long start, int *act)
 	for (;;) {
 		unsigned p = pressed();
 		if (p & PAD_CIRCLE) { *act = ACT_STOP; break; }
-		if (p & (PAD_CROSS | PAD_START) && last_ms >= 0) { *act = ACT_PAUSE; break; } // a picture to pause on
-		if (p & (PAD_L1 | PAD_LEFT)) { *act = ACT_BACK; break; }
-		if (p & (PAD_R1 | PAD_RIGHT)) { *act = ACT_FWD; break; }
+		// pause and seek end this stream, which takes seconds (threads, the stop report): the paused or loading screen is
+		// drawn first and stays on while that happens (nothing flips until the pause screen or the next stream)
+		if (p & (PAD_CROSS | PAD_START) && last_ms >= 0) { // a picture to pause on
+			*act = ACT_PAUSE, paused = 1;
+			draw_picture(pic_w, pic_h, NULL, sub_at(last_ms));
+			break;
+		}
+		if (p & (PAD_L1 | PAD_LEFT | PAD_R1 | PAD_RIGHT)) {
+			*act = p & (PAD_L1 | PAD_LEFT) ? ACT_BACK : ACT_FWD, loading = 1;
+			hud_show(), draw_picture(pic_w, pic_h, NULL, NULL);
+			break;
+		}
 		if (p & PAD_SELECT) show_osd ^= 1;
 		if (p & PAD_TRIANGLE) hud_show(); // just the bar
 		if (p & PAD_SQUARE) sub_next(), hud_show();
@@ -911,7 +920,7 @@ static void play_and_back(jf_item *it, long long start)
 	screen(it->name, "Preparando...");
 	subs_fetch(&conn, it);
 	sub_select(sub_pick());
-	toast_until = 0, pic_w = pic_h = 0;
+	toast_until = 0, pic_w = pic_h = 0, paused = loading = 0;
 	if (cur_track >= 0) { char m[112]; snprintf(m, sizeof(m), "Subtítulos: %.60s  (Cuadrado cambia)", tracks[cur_track].title); say(m); }
 	else if (ntracks) say("Subtítulos: no  (Cuadrado cambia)");
 	hud_title = it->name, hud_len_ms = (int)(it->ticks / 10000);
