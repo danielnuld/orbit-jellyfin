@@ -19,11 +19,13 @@ static int vram_alloc(int words, int clut)
 	return a;
 }
 
-// ---- text: UTF-8 -> glyph index (ASCII 32-126 = 0..94, font_extras = 95..110), -1 = not in the fonts ----
+// ---- text: UTF-8 -> glyph index (ASCII 32-126 = 0..94, font_extras = 95..), -1 = not in the fonts. A font that
+// did not bake an extra letter (only ui has them all, tools/font.py) gets its ASCII base instead: è -> e, œ -> o ----
 extern const unsigned short font_extras[GFX_EXTRAS];
+extern const unsigned char font_fallback[GFX_EXTRAS];
 static int tracking;
 
-static int next_glyph(const char **ps)
+static int next_glyph(const gfx_font *f, const char **ps)
 {
 	const unsigned char *s = (const unsigned char *)*ps;
 	if (*s < 0x80) { *ps += 1; return *s >= 32 && *s < 127 ? *s - 32 : -1; }
@@ -31,7 +33,7 @@ static int next_glyph(const char **ps)
 		unsigned cp = (s[0] & 0x1F) << 6 | (s[1] & 0x3F);
 		*ps += 2;
 		for (int i = 0; i < GFX_EXTRAS; i++)
-			if (font_extras[i] == cp) return 95 + i;
+			if (font_extras[i] == cp) return f->g[95 + i].adv ? 95 + i : font_fallback[i] - 32;
 		return -1;
 	}
 	for (*ps += 1; (**(const unsigned char **)ps & 0xC0) == 0x80; *ps += 1) {} // skip other sequences
@@ -42,7 +44,7 @@ int gfx_text_width(const gfx_font *f, const char *s)
 {
 	int w = 0;
 	while (*s && *s != '\n') {
-		int g = next_glyph(&s);
+		int g = next_glyph(f, &s);
 		if (g >= 0) w += f->g[g].adv + tracking;
 	}
 	return w > 0 ? w - tracking : 0;
@@ -105,9 +107,9 @@ int main(void)
 
 	const gfx_font *f = &gfx_font_ui;
 	const char *s = "a\xC3\xA9" "b";                    // "aéb"
-	assert(next_glyph(&s) == 'a' - 32 && next_glyph(&s) == 95 + 1 && next_glyph(&s) == 'b' - 32 && !*s);
+	assert(next_glyph(f, &s) == 'a' - 32 && next_glyph(f, &s) == 95 + 1 && next_glyph(f, &s) == 'b' - 32 && !*s);
 	s = "\xE2\x82\xAC!";                                 // 3-byte sequence (euro): skipped as one unknown
-	assert(next_glyph(&s) == -1 && next_glyph(&s) == '!' - 32);
+	assert(next_glyph(f, &s) == -1 && next_glyph(f, &s) == '!' - 32);
 	assert(gfx_text_width(f, "AB") == f->g['A' - 32].adv + f->g['B' - 32].adv);
 	assert(gfx_text_width(f, "AB\nCCCC") == gfx_text_width(f, "AB")); // first line only
 	tracking = 4;
@@ -115,6 +117,11 @@ int main(void)
 	tracking = 0;
 	assert(gfx_text_width(f, "t\xC3\xA9") == f->g['t' - 32].adv + f->g[96].adv && f->g[96].w > 0); // é baked
 	assert(gfx_font_logo.g['O' - 32].w > 0 && gfx_font_logo.g['A' - 32].w == 0); // logo: "ORBIT" only
+	s = "\xC3\xA8\xC5\x93";                              // e-grave, oe: the ui font bakes both
+	int eg = next_glyph(f, &s), oe = next_glyph(f, &s);
+	assert(eg >= 95 && oe >= 95 && f->g[eg].w > 0 && f->g[oe].w > 0 && !*s);
+	s = "\xC3\xA8\xC5\x93";                              // the title font did not: its ASCII base
+	assert(next_glyph(&gfx_font_title, &s) == 'e' - 32 && next_glyph(&gfx_font_title, &s) == 'o' - 32);
 	for (int c = 33; c < 127; c++) assert(gfx_font_title.g[c - 32].w > 0 && gfx_font_mono.g[c - 32].w > 0);
 	static unsigned short img[64 * 64], lin[300 * 140], tl[300 * 140];
 	gfx_fs_dither(img, 64, 64, flat, NULL);                // exact levels: no noise added
@@ -630,7 +637,7 @@ static void text(const gfx_font *f, int x, int y, const char *s, unsigned rgb, i
 	int split = y + f->asc * 55 / 100, bot = y + f->line_h;
 	for (int x0 = x; *s;) {
 		if (*s == '\n') { x = x0; y += f->line_h; split += f->line_h; bot += f->line_h; s++; continue; }
-		int gi = next_glyph(&s);
+		int gi = next_glyph(f, &s);
 		if (gi < 0) continue;
 		const gfx_glyph *g = &f->g[gi];
 		int gy0 = y + g->yo, gy1 = gy0 + g->h, gx0 = x + g->xo, gx1 = gx0 + g->w;
