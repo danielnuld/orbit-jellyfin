@@ -255,6 +255,27 @@ static int video_data(void *u)
 	return 1;
 }
 
+// libmpeg's _MPEG_Initialize resets the IPU and zeroes the D3 / D4 counts but leaves the channels started: after a
+// stream cut mid-picture (pause, seek) toIPU still had a block in flight and, on the console, the next stream's first
+// dma_channel_wait never returned (data in, no picture; PCSX2 did not show it). Stop both channels with the DMAC
+// held (libmpeg's _ipu_suspend sequence), then reset the IPU
+static void ipu_stop(void)
+{
+	volatile u32 *enabler = (u32 *)0x1000F520, *enablew = (u32 *)0x1000F590;
+	volatile u32 *d3_chcr = (u32 *)0x1000B000, *d4_chcr = (u32 *)0x1000B400, *d4_qwc = (u32 *)0x1000B420;
+	volatile u32 *ipu_ctrl = (u32 *)0x10002010;
+	DI();
+	u32 e = *enabler;
+	*enablew = e | 0x10000;
+	__asm__ volatile("sync.l");
+	*d4_chcr &= ~0x100, *d3_chcr &= ~0x100, *d4_qwc = 0;
+	*enablew = e;
+	EI();
+	*ipu_ctrl = 1u << 30;
+	while (*ipu_ctrl & (1u << 31));
+	pending = 0;
+}
+
 static MPEGSequenceInfo *seq;
 static u8 *pic;               // decoded picture, RGBA32 in macroblocks
 static void *video_init(void *u, MPEGSequenceInfo *si)
@@ -565,6 +586,7 @@ static long long play(jf_conn *c, const jf_item *it, long long start, int *act)
 	ee_thread_t wt = {.func = watchdog, .stack = dog_stack, .stack_size = sizeof(dog_stack), .gp_reg = &_gp, .initial_priority = 0x20};
 	int wtid = CreateThread(&wt);
 	StartThread(wtid, NULL);
+	ipu_stop();
 	dma_channel_initialize(DMA_CHANNEL_toIPU, NULL, 0);
 	MPEG_Initialize(video_data, NULL, video_init, NULL, &cur_pts);
 	long long wall0 = 0, last_pts = -1, gap = 0, first_pts = -1;
@@ -622,14 +644,23 @@ static long long play(jf_conn *c, const jf_item *it, long long start, int *act)
 	stop = 1;
 	clock_t e0 = clock();
 	MPEG_Destroy();
+	ipu_stop();
 	logf_("jfplay: MPEG_Destroy %d ms\n", (int)((long long)(clock() - e0) * 1000 / CLOCKS_PER_SEC));
-	http_close(&hs);    // unblocks the network thread's recv
+	// the network thread leaves by itself too (it checks stop between reads; a full ring returns at once), and only
+	// then is the socket closed: terminated inside lwIP's recv, or its socket closed under it, the next connection
+	// (the stop report, the stream after a pause or a seek) could hang on lwIP's state
+	e0 = clock();
+	for (int t = 0; t < 300 && !net_eof; t++) usleep(10000);
+	if (!net_eof) TerminateThread(ntid), logf_("jfplay: network thread did not stop (at %d)\n", net_at);
+	http_close(&hs);
+	logf_("jfplay: network thread %d ms\n", (int)((long long)(clock() - e0) * 1000 / CLOCKS_PER_SEC));
 	// the audio thread leaves by itself: terminated inside audsrv_wait_audio, the next audsrv call (stop) hung
 	// when O was pressed mid-movie. Its wait ends as audsrv drains, well within 2 s
 	for (int t = 0; t < 200 && !a_done && atid >= 0; t++) usleep(10000);
-	TerminateThread(ntid), TerminateThread(wtid);
-	if (!a_done) TerminateThread(atid), logf_("jfplay: audio thread did not stop\n");
+	TerminateThread(wtid);
+	if (!a_done) TerminateThread(atid), logf_("jfplay: audio thread did not stop (at %d)\n", audio_at);
 	audsrv_stop_audio();
+	logf_("jfplay: audio stopped\n");
 	long long pos = last_ms >= 0 ? last_ms * 10000LL : start; // the last picture shown, as the bar and subtitles count
 	e0 = clock();
 	jf_report(c, "/Stopped", it->id, pos);
