@@ -57,3 +57,8 @@ Portuguese, German...), and `gfx.c` draws the ASCII base letter when a font lack
 - `tools/pcsx2/`: headless PCSX2 harness (Xvfb, virtual USB image, pad input, capture).
 - On the console, some full-size Ethernet frames arrive with their last 42 bytes zeroed (ps2sdk netman's D-cache
   write-back); `net.c` lowers the MTU to 1400 so the server never sends frames that long.
+
+## License
+
+GPL-3.0 (see `LICENSE`). `jfplay.elf` statically links wolfSSL 5.8.2 (GPL-3.0-or-later) and libmad (GPL-2.0-or-later)
+from the ps2sdk ports, and ps2sdk itself (AFL-2.0). The fonts in `tools/fonts` are under the SIL Open Font License 1.1.
