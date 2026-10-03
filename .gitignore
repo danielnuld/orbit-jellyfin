@@ -1,3 +1,4 @@
 *.o
 *.elf
 *_irx.c
+__pycache__/
