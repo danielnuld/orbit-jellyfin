@@ -25,6 +25,7 @@
 #include <mad.h>
 #include <audsrv.h>
 #include <sio.h>
+#include "lang.h"
 #include "gfx.h"
 #include "iop.h"
 #include "ini.h"
@@ -40,6 +41,7 @@
 #define LABEL 0x8FA0C4
 #define ICE 0x7FE7FF
 #define LOG "mass0:/jfplay.txt"
+int lang_en; // lang.h
 #define VBR 3000000 // bits/s asked of Jellyfin; ~2.9 Mbit/s measured with the test movie (docs/phase15-results.md)
 
 static void logf_(const char *fmt, ...) __attribute__((format(printf, 1, 2)));
@@ -397,13 +399,13 @@ static void say(const char *m) { snprintf(toast, sizeof(toast), "%s", m), toast_
 static void sub_next(void) // □: the next track that has cues, then off
 {
 	char m[96];
-	if (!ntracks) { say("Sin subtítulos de texto"); return; }
+	if (!ntracks) { say(L("Sin subtítulos de texto", "No text subtitles")); return; }
 	int k = cur_track;
 	do k = k + 1 < ntracks ? k + 1 : -1;
 	while (k >= 0 && !subs[k].n);
 	sub_select(k);
-	if (k < 0) say("Subtítulos: no");
-	else snprintf(m, sizeof(m), "Subtítulos: %.70s", tracks[k].title), say(m);
+	if (k < 0) say(L("Subtítulos: no", "Subtitles: off"));
+	else snprintf(m, sizeof(m), L("Subtítulos: %.70s", "Subtitles: %.70s"), tracks[k].title), say(m);
 }
 
 // ---- player bar: title, time, progress and the buttons, as the launcher's footer. Shown while paused or loading,
@@ -465,13 +467,13 @@ static void draw_hud(void)
 		gfx_rect(64, 600, f, 4, ICE);
 		gfx_rrect(64 + f - 7, 595, 14, 14, 7, CHROME_T, CHROME_B);
 	}
-	int x = hint(GFX_W - 64, 636, UI_CIRCLE_14, NULL, -1, "Salir");
-	if (ntracks) x = hint(x, 636, UI_SQUARE_14, NULL, -1, "Subtítulos");
+	int x = hint(GFX_W - 64, 636, UI_CIRCLE_14, NULL, -1, L("Salir", "Exit"));
+	if (ntracks) x = hint(x, 636, UI_SQUARE_14, NULL, -1, L("Subtítulos", "Subtitles"));
 	x = hint(x, 636, -1, "R1", -1, "+30 s");
 	x = hint(x, 636, -1, "L1", -1, "-10 s");
-	hint(x, 636, UI_CROSS_14, NULL, paused ? UI_PLAY_18 : -1, paused ? "Seguir" : "Pausa");
+	hint(x, 636, UI_CROSS_14, NULL, paused ? UI_PLAY_18 : -1, paused ? L("Seguir", "Resume") : L("Pausa", "Pause"));
 	if (paused || loading) { // a chrome-edged pill, top centre (the launcher's view label)
-		const char *s = paused ? "EN PAUSA" : "CARGANDO";
+		const char *s = paused ? L("EN PAUSA", "PAUSED") : L("CARGANDO", "LOADING");
 		gfx_tracking(3);
 		int w = gfx_text_width(&gfx_font_mono, s) + 40, px = (GFX_W - w) / 2;
 		gfx_alpha(0x40);
@@ -566,7 +568,7 @@ static long long play(jf_conn *c, const jf_item *it, long long start, int *act)
 	ps_init(&dmx, on_video, on_audio, NULL);
 	int st = jf_stream(c, &hs, it->id, start, VBR);
 	logf_("jfplay: %s (%s) from %lld s: HTTP %d\n", it->name, it->id, start / 10000000, st);
-	if (st != 200) { snprintf(osd, sizeof(osd), "HTTP %d", st); screen("No se pudo abrir el video", osd); sleep(3); return start; }
+	if (st != 200) { snprintf(osd, sizeof(osd), "HTTP %d", st); screen(L("No se pudo abrir el video", "Could not open the video"), osd); sleep(3); return start; }
 	jf_report(c, "", it->id, start);
 	extern void *_gp;
 	ee_thread_t nt = {.func = net_thread, .stack = net_stack, .stack_size = sizeof(net_stack), .gp_reg = &_gp, .initial_priority = 0x30};
@@ -579,7 +581,7 @@ static long long play(jf_conn *c, const jf_item *it, long long start, int *act)
 	for (int t = 0; t < 600 && ring_used(&vring) < (1 << 20) && ring_used(&aring) < aring.size * 3 / 4 && !net_eof; t++) {
 		if (t % 120 == 119) stall("prebuffer");
 		if (pic_w) draw_picture(pic_w, pic_h, NULL, NULL); // after a seek or a pause: the last picture, under the bar
-		else snprintf(osd, sizeof(osd), "CARGANDO  %d KB  %d KB/s", ring_used(&vring) >> 10, net_kb), screen(it->name, osd);
+		else snprintf(osd, sizeof(osd), L("CARGANDO  %d KB  %d KB/s", "LOADING  %d KB  %d KB/s"), ring_used(&vring) >> 10, net_kb), screen(it->name, osd);
 	}
 	loading = 0;
 	StartThread(atid, NULL);
@@ -627,7 +629,8 @@ static long long play(jf_conn *c, const jf_item *it, long long start, int *act)
 		while ((now = clock90(wall0)) < t - 90 * 8 && !stop && clock() - wait0 < 2 * CLOCKS_PER_SEC) usleep(2000);
 		if (clock() - wait0 >= 2 * CLOCKS_PER_SEC) logf_("jfplay: waited 2 s for picture %lld (clock %lld)\n", t, now), stall("picture wait");
 		int secs = (int)((clock() - w0) / CLOCKS_PER_SEC);
-		snprintf(osd, sizeof(osd), "%02d:%02d  %dx%d  dec %d  vis %d  tarde %d  red %d KB/s  buf %d KB  av %+d ms",
+		snprintf(osd, sizeof(osd), L("%02d:%02d  %dx%d  dec %d  vis %d  tarde %d  red %d KB/s  buf %d KB  av %+d ms",
+		         "%02d:%02d  %dx%d  dec %d  shown %d  late %d  net %d KB/s  buf %d KB  av %+d ms"),
 		         secs / 60, secs % 60, seq->m_Width, seq->m_Height, decoded, shown, late, net_kb, ring_used(&vring) >> 10,
 		         (int)(gap / 90));
 		main_at = 2;
@@ -822,9 +825,9 @@ static void draw_browse(float s)
 		gfx_tracking(0);
 		tx += w + 36;
 	}
-	if (nlib > 1) hint(GFX_W - 64, 34, -1, "L1 R1", -1, "Biblioteca");
+	if (nlib > 1) hint(GFX_W - 64, 34, -1, "L1 R1", -1, L("Biblioteca", "Library"));
 	if (!nitems) {
-		gfx_text(&gfx_font_ui, 140, 300, "Esta biblioteca está vacía", TEXT2);
+		gfx_text(&gfx_font_ui, 140, 300, L("Esta biblioteca está vacía", "This library is empty"), TEXT2);
 		gfx_end(), gfx_flip();
 		return;
 	}
@@ -856,8 +859,8 @@ static void draw_browse(float s)
 	if (!strcmp(it->type, "Series")) hint(GFX_W - 64, 652, UI_CROSS_14, NULL, UI_LIST_18, "Episodios");
 	else {
 		int x = GFX_W - 64;
-		if (it->resume) x = hint(x, 652, UI_TRIANGLE_14, NULL, UI_PLAY_18, "Continuar");
-		hint(x, 652, UI_CROSS_14, NULL, UI_PLAY_18, "Reproducir");
+		if (it->resume) x = hint(x, 652, UI_TRIANGLE_14, NULL, UI_PLAY_18, L("Continuar", "Continue"));
+		hint(x, 652, UI_CROSS_14, NULL, UI_PLAY_18, L("Reproducir", "Play"));
 	}
 	if (neps >= 0) { // episode panel over the browse screen
 		int pw = 760, ph = 520, px = (GFX_W - pw) / 2, pyy = 110;
@@ -866,7 +869,7 @@ static void draw_browse(float s)
 		gfx_alpha(0x80);
 		gfx_rrect(px, pyy, pw, ph, 18, 0x16224A, 0x0A1128);
 		gfx_text(&gfx_font_ui, px + 28, pyy + 20, it->name, TEXT);
-		if (!neps) gfx_text(&gfx_font_ui, px + 28, pyy + 80, "Sin episodios", TEXT2);
+		if (!neps) gfx_text(&gfx_font_ui, px + 28, pyy + 80, L("Sin episodios", "No episodes"), TEXT2);
 		int top = ep_sel > 5 ? ep_sel - 5 : 0;
 		for (int e = top; e < neps && e < top + 8; e++) {
 			int ey = pyy + 70 + (e - top) * 44;
@@ -880,10 +883,10 @@ static void draw_browse(float s)
 			gfx_text(&gfx_font_mono, px + pw - 28 - gfx_text_width(&gfx_font_mono, a), ey + 2, a, LABEL);
 			if (eps[e].resume > 0 && eps[e].ticks > 0) gfx_rect(px + 150, ey + 30, (int)(300 * eps[e].resume / eps[e].ticks), 3, ICE);
 		}
-		int x = hint(px + pw - 20, pyy + ph - 62, UI_CIRCLE_14, NULL, -1, "Cerrar");
+		int x = hint(px + pw - 20, pyy + ph - 62, UI_CIRCLE_14, NULL, -1, L("Cerrar", "Close"));
 		if (neps > 0) {
-			if (eps[ep_sel].resume) x = hint(x, pyy + ph - 62, UI_TRIANGLE_14, NULL, UI_PLAY_18, "Continuar");
-			hint(x, pyy + ph - 62, UI_CROSS_14, NULL, UI_PLAY_18, "Reproducir");
+			if (eps[ep_sel].resume) x = hint(x, pyy + ph - 62, UI_TRIANGLE_14, NULL, UI_PLAY_18, L("Continuar", "Continue"));
+			hint(x, pyy + ph - 62, UI_CROSS_14, NULL, UI_PLAY_18, L("Reproducir", "Play"));
 		}
 	}
 	gfx_end();
@@ -917,12 +920,12 @@ static int pause_screen(long long *pos, long long len) // the last picture under
 static void play_and_back(jf_item *it, long long start)
 {
 	wait_loader();
-	screen(it->name, "Preparando...");
+	screen(it->name, L("Preparando...", "Preparing..."));
 	subs_fetch(&conn, it);
 	sub_select(sub_pick());
 	toast_until = 0, pic_w = pic_h = 0, paused = loading = 0;
-	if (cur_track >= 0) { char m[112]; snprintf(m, sizeof(m), "Subtítulos: %.60s  (Cuadrado cambia)", tracks[cur_track].title); say(m); }
-	else if (ntracks) say("Subtítulos: no  (Cuadrado cambia)");
+	if (cur_track >= 0) { char m[112]; snprintf(m, sizeof(m), L("Subtítulos: %.60s  (Cuadrado cambia)", "Subtitles: %.60s  (Square changes)"), tracks[cur_track].title); say(m); }
+	else if (ntracks) say(L("Subtítulos: no  (Cuadrado cambia)", "Subtitles: off  (Square changes)"));
 	hud_title = it->name, hud_len_ms = (int)(it->ticks / 10000);
 	long long pos = start;
 	for (;;) { // a pause or a seek ends the stream; the next one starts where it left
@@ -947,15 +950,16 @@ int main(void)
 	// (0x56-0x59, ps2sdk lwipopts.h / netman) must preempt the decode + conversion, which only this thread does
 	ChangeThreadPriority(GetThreadId(), 0x60);
 	if (!gfx_init()) printf("gfx_init: VRAM pool too small\n");
-	screen("Jellyfin", "Cargando módulos...");
-	if (!iop_init()) { screen("Jellyfin", "Sin USB (mass0:)"); SleepThread(); }
+	screen("Jellyfin", L("Cargando módulos...", "Loading modules..."));
+	if (!iop_init()) { screen("Jellyfin", L("Sin USB (mass0:)", "No USB (mass0:)")); SleepThread(); }
 	audsrv_init();
 	ini_load(&cfg, "mass0:/orbit/config.ini");
+	lang_en = !strcasecmp(ini_get(&cfg, "ui", "idioma", "es"), "en"); // the launcher's [ui] idioma (phase 18)
 	logf_("jfplay: start\n");
-	screen("Jellyfin", "Conectando a la red...");
+	screen("Jellyfin", L("Conectando a la red...", "Connecting to the network..."));
 	int r = net_up(ini_get(&cfg, "red", "ip", "dhcp"), ini_get(&cfg, "red", "mascara", "255.255.255.0"),
 	               ini_get(&cfg, "red", "puerta", ""), ini_get(&cfg, "red", "dns", ""));
-	if (r < 0) { snprintf(msg, sizeof(msg), "Error de red %d (cable, DHCP o [red] de config.ini)", r); logf_("%s\n", msg); screen("Jellyfin", msg); SleepThread(); }
+	if (r < 0) { snprintf(msg, sizeof(msg), L("Error de red %d (cable, DHCP o [red] de config.ini)", "Network error %d (cable, DHCP or [red] in config.ini)"), r); logf_("%s\n", msg); screen("Jellyfin", msg); SleepThread(); }
 	jf_conn c;
 	const char *url = ini_get(&cfg, "jellyfin", "servidor", "");
 	snprintf(sub_pref, sizeof(sub_pref), "%s", ini_get(&cfg, "jellyfin", "subtitulos", "spa"));
@@ -963,8 +967,9 @@ int main(void)
 	r = jf_login(&c, url, ini_get(&cfg, "jellyfin", "usuario", ""), ini_get(&cfg, "jellyfin", "clave", ""));
 	logf_("jfplay: mtu %d, login %s: %d (%s)\n", net_mtu, url, r, jf_login_why);
 	if (r < 0) {
-		snprintf(msg, sizeof(msg), "No se pudo entrar a %s (%d)\nRevisa [jellyfin] servidor, usuario y clave en config.ini",
-		         *url ? url : "(sin servidor)", r);
+		snprintf(msg, sizeof(msg), L("No se pudo entrar a %s (%d)\nRevisa [jellyfin] servidor, usuario y clave en config.ini",
+		           "Could not sign in to %s (%d)\nCheck [jellyfin] servidor, usuario and clave in config.ini"),
+		         *url ? url : L("(sin servidor)", "(no server)"), r);
 		screen("Jellyfin", msg);
 		SleepThread();
 	}
